@@ -16,14 +16,17 @@ class _CallOverlayState extends State<CallOverlay> {
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
 
-  // State Management
+  // Logic State
   bool _isPaying = false;
   bool _paymentConfirmed = false;
   bool _callConnecting = false;
-  
-  // Permission States
   bool _hasPermissions = false;
-  String? _permissionError; // To show specific errors to user
+  
+  // Media State (New!)
+  bool _isMicOn = true;
+  bool _isCameraOn = true;
+
+  String? _permissionError;
   String? _roomId;
 
   @override
@@ -50,7 +53,6 @@ class _CallOverlayState extends State<CallOverlay> {
     super.dispose();
   }
 
-  /// 1. Secure Flow: Check Permissions -> Then Pay -> Then Connect
   Future<void> _validateAndProcessPayment() async {
     setState(() {
       _isPaying = true;
@@ -58,15 +60,12 @@ class _CallOverlayState extends State<CallOverlay> {
     });
 
     try {
-      // Step A: Request Permissions FIRST. 
-      // If the user blocks this, the catch block handles it.
       await _signaling.openUserMedia(_localRenderer, _remoteRenderer);
       
       if (mounted) {
         setState(() => _hasPermissions = true);
       }
 
-      // Step B: If permissions passed, Simulate Payment
       await Future.delayed(const Duration(seconds: 3));
 
       if (mounted) {
@@ -74,18 +73,14 @@ class _CallOverlayState extends State<CallOverlay> {
           _isPaying = false;
           _paymentConfirmed = true;
         });
-        
-        // Step C: Start the signaling now that we have the stream
         _startWebRTCCall();
       }
 
     } catch (e) {
-      // Handle Permission Errors gracefully
       debugPrint("Permission Error: $e");
       if (mounted) {
         setState(() {
           _isPaying = false;
-          // Determine if it was a permission error
           String errorStr = e.toString();
           if (errorStr.contains('NotAllowedError') || errorStr.contains('PermissionDeniedError')) {
              _permissionError = "Camera blocked! Please click the lock icon 🔒 in your browser address bar to allow access.";
@@ -102,10 +97,8 @@ class _CallOverlayState extends State<CallOverlay> {
   Future<void> _startWebRTCCall() async {
     setState(() => _callConnecting = true);
     try {
-      // We already opened user media in the previous step, so we just create room
       _roomId = await _signaling.createRoom(_remoteRenderer);
       print("TELMED ROOM ID CREATED: $_roomId");
-
       if (mounted) setState(() => _callConnecting = false);
     } catch (e) {
       debugPrint("Call failed: $e");
@@ -123,18 +116,18 @@ class _CallOverlayState extends State<CallOverlay> {
           if (_paymentConfirmed && !_callConnecting)
             Positioned.fill(child: RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)),
 
-          // 2. Payment & Permission UI
+          // 2. Payment UI
           if (!_paymentConfirmed) _buildPaymentUI(),
 
           // 3. Loader
           if (_callConnecting)
             const Center(child: CircularProgressIndicator(color: Colors.greenAccent)),
 
-          // 4. Local Preview (Floating) - Show this AS SOON as we have permissions (even during payment)
+          // 4. Local Preview (Floating)
           if (_hasPermissions) 
             _buildLocalThumbnail(),
 
-          // 5. Controls
+          // 5. Controls (Updated with Mic/Cam toggles)
           if (_paymentConfirmed && !_callConnecting) ...[
             _buildActionControls(),
             _buildRoomIdDisplay(),
@@ -184,7 +177,6 @@ class _CallOverlayState extends State<CallOverlay> {
             
             const SizedBox(height: 30),
             
-            // ERROR MESSAGE DISPLAY
             if (_permissionError != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 20),
@@ -204,7 +196,6 @@ class _CallOverlayState extends State<CallOverlay> {
               ),
 
             ElevatedButton(
-              // Change action to Validate Permissions first
               onPressed: _isPaying ? null : _validateAndProcessPayment,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _permissionError != null ? Colors.redAccent : const Color(0xFFF9A825),
@@ -240,9 +231,15 @@ class _CallOverlayState extends State<CallOverlay> {
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: Colors.white38, width: 2),
         ),
+        // If camera is OFF, we can show an icon instead of the black renderer
         child: ClipRRect(
           borderRadius: BorderRadius.circular(18),
-          child: RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+          child: _isCameraOn
+            ? RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+            : Container(
+                color: Colors.black87,
+                child: const Center(child: Icon(Icons.videocam_off, color: Colors.white38, size: 40)),
+              ),
         ),
       ),
     );
@@ -256,26 +253,60 @@ class _CallOverlayState extends State<CallOverlay> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _circleBtn(Icons.mic, Colors.white10),
+          // 1. MIC TOGGLE
+          _circleBtn(
+            icon: _isMicOn ? Icons.mic : Icons.mic_off, 
+            bgColor: _isMicOn ? Colors.white10 : Colors.white, 
+            iconColor: _isMicOn ? Colors.white : Colors.black,
+            onTap: () {
+              _signaling.toggleMic();
+              setState(() => _isMicOn = !_isMicOn);
+            }
+          ),
+          
           const SizedBox(width: 25),
-          _circleBtn(Icons.call_end, Colors.red, isEnd: true, onTap: () {
-            _signaling.hangUp(_localRenderer);
-            Navigator.pop(context);
-          }),
+          
+          // 2. HANG UP (Always Red)
+          _circleBtn(
+            icon: Icons.call_end, 
+            bgColor: Colors.red, 
+            iconColor: Colors.white,
+            onTap: () {
+              _signaling.hangUp(_localRenderer);
+              Navigator.pop(context);
+            }
+          ),
+          
           const SizedBox(width: 25),
-          _circleBtn(Icons.videocam, Colors.white10),
+          
+          // 3. VIDEO TOGGLE
+          _circleBtn(
+            icon: _isCameraOn ? Icons.videocam : Icons.videocam_off, 
+            bgColor: _isCameraOn ? Colors.white10 : Colors.white, 
+            iconColor: _isCameraOn ? Colors.white : Colors.black,
+            onTap: () {
+              _signaling.toggleCamera();
+              setState(() => _isCameraOn = !_isCameraOn);
+            }
+          ),
         ],
       ),
     );
   }
 
-  Widget _circleBtn(IconData icon, Color color, {bool isEnd = false, VoidCallback? onTap}) {
+  // Updated helper to accept dynamic colors
+  Widget _circleBtn({
+    required IconData icon, 
+    required Color bgColor, 
+    required Color iconColor, 
+    VoidCallback? onTap
+  }) {
     return InkWell(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        child: Icon(icon, color: Colors.white, size: 30),
+        decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
+        child: Icon(icon, color: iconColor, size: 30),
       ),
     );
   }

@@ -16,7 +16,8 @@ class Signaling {
   String? roomId;
   StreamHandler? onAddRemoteStream;
 
-  // 1. Create Room
+  // --- 1. SESSION CONTROL ---
+
   Future<String> createRoom(RTCVideoRenderer remoteRenderer) async {
     FirebaseFirestore db = FirebaseFirestore.instance;
     DocumentReference roomRef = db.collection('rooms').doc();
@@ -60,7 +61,6 @@ class Signaling {
     return roomId!;
   }
 
-  // 2. Join Room (For Doctor/Testing)
   Future<void> joinRoom(String roomId, RTCVideoRenderer remoteVideo) async {
     FirebaseFirestore db = FirebaseFirestore.instance;
     DocumentReference roomRef = db.collection('rooms').doc(roomId);
@@ -112,14 +112,15 @@ class Signaling {
     }
   }
 
-  // 3. Open Camera & Mic (UPDATED with better constraints)
+  // --- 2. MEDIA HANDLING ---
+
   Future<void> openUserMedia(RTCVideoRenderer localVideo, RTCVideoRenderer remoteVideo) async {
     final Map<String, dynamic> mediaConstraints = {
       'audio': true,
       'video': {
-        'facingMode': 'user', // Front camera preference
+        'facingMode': 'user',
         'width': {'ideal': 1280},
-        'height': {'ideal': 720} 
+        'height': {'ideal': 720}
       }
     };
 
@@ -127,14 +128,27 @@ class Signaling {
       var stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
       localVideo.srcObject = stream;
       localStream = stream;
-      // remoteVideo is handled via onAddRemoteStream
     } catch (e) {
-      // Re-throw so the UI knows permissions failed
-      throw e; 
+      throw e;
     }
   }
 
-  // 4. Hang Up
+  // NEW: Toggle Microphone
+  void toggleMic() {
+    if (localStream != null) {
+      bool enabled = localStream!.getAudioTracks()[0].enabled;
+      localStream!.getAudioTracks()[0].enabled = !enabled;
+    }
+  }
+
+  // NEW: Toggle Camera
+  void toggleCamera() {
+    if (localStream != null) {
+      bool enabled = localStream!.getVideoTracks()[0].enabled;
+      localStream!.getVideoTracks()[0].enabled = !enabled;
+    }
+  }
+
   Future<void> hangUp(RTCVideoRenderer localVideo) async {
     if (localVideo.srcObject != null) {
       List<MediaStreamTrack> tracks = localVideo.srcObject!.getTracks();
