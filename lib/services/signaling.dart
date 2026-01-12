@@ -4,7 +4,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 typedef StreamHandler = void Function(MediaStream stream);
 
 class Signaling {
-  // Google's public STUN servers (needed for P2P connection)
   Map<String, dynamic> configuration = {
     'iceServers': [
       {'urls': ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302']}
@@ -17,7 +16,7 @@ class Signaling {
   String? roomId;
   StreamHandler? onAddRemoteStream;
 
-  // 1. Create a Room (Patient Side)
+  // 1. Create Room
   Future<String> createRoom(RTCVideoRenderer remoteRenderer) async {
     FirebaseFirestore db = FirebaseFirestore.instance;
     DocumentReference roomRef = db.collection('rooms').doc();
@@ -29,13 +28,11 @@ class Signaling {
       peerConnection?.addTrack(track, localStream!);
     });
 
-    // Code for collecting ICE candidates
     var callerCandidatesCollection = roomRef.collection('callerCandidates');
     peerConnection?.onIceCandidate = (RTCIceCandidate candidate) {
       callerCandidatesCollection.add(candidate.toMap());
     };
 
-    // Create Offer
     RTCSessionDescription offer = await peerConnection!.createOffer();
     await peerConnection!.setLocalDescription(offer);
 
@@ -43,7 +40,6 @@ class Signaling {
     await roomRef.set(roomWithOffer);
     roomId = roomRef.id;
 
-    // Listen for Remote Answer (Doctor's Answer)
     roomRef.snapshots().listen((snapshot) async {
       final data = snapshot.data() as Map<String, dynamic>?;
       if (peerConnection?.getRemoteDescription() == null && data != null && data['answer'] != null) {
@@ -52,7 +48,6 @@ class Signaling {
       }
     });
 
-    // Listen for Remote ICE candidates (from Doctor)
     roomRef.collection('calleeCandidates').snapshots().listen((snapshot) {
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
@@ -65,7 +60,7 @@ class Signaling {
     return roomId!;
   }
 
-  // 2. Join a Room (Doctor Side - You need this for testing the loop)
+  // 2. Join Room (For Doctor/Testing)
   Future<void> joinRoom(String roomId, RTCVideoRenderer remoteVideo) async {
     FirebaseFirestore db = FirebaseFirestore.instance;
     DocumentReference roomRef = db.collection('rooms').doc(roomId);
@@ -79,7 +74,6 @@ class Signaling {
         peerConnection?.addTrack(track, localStream!);
       });
 
-      // Code for collecting ICE candidates
       var calleeCandidatesCollection = roomRef.collection('calleeCandidates');
       peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
         calleeCandidatesCollection.add(candidate.toMap());
@@ -92,14 +86,12 @@ class Signaling {
         if (onAddRemoteStream != null) onAddRemoteStream!(event.streams[0]);
       };
 
-      // Set Remote Description (The Patient's Offer)
       var data = roomSnapshot.data() as Map<String, dynamic>;
       var offer = data['offer'];
       await peerConnection?.setRemoteDescription(
         RTCSessionDescription(offer['sdp'], offer['type']),
       );
 
-      // Create Answer
       var answer = await peerConnection!.createAnswer();
       await peerConnection!.setLocalDescription(answer);
 
@@ -109,7 +101,6 @@ class Signaling {
 
       await roomRef.update(roomWithAnswer);
 
-      // Listen for Remote ICE candidates (from Patient)
       roomRef.collection('callerCandidates').snapshots().listen((snapshot) {
         for (var document in snapshot.docChanges) {
           var data = document.doc.data() as Map<String, dynamic>;
@@ -121,15 +112,29 @@ class Signaling {
     }
   }
 
-  // 3. Open Camera & Mic
+  // 3. Open Camera & Mic (UPDATED with better constraints)
   Future<void> openUserMedia(RTCVideoRenderer localVideo, RTCVideoRenderer remoteVideo) async {
-    var stream = await navigator.mediaDevices.getUserMedia({'video': true, 'audio': true});
-    localVideo.srcObject = stream;
-    localStream = stream;
-    // We don't set remoteVideo.srcObject here anymore; it's handled in onAddRemoteStream
+    final Map<String, dynamic> mediaConstraints = {
+      'audio': true,
+      'video': {
+        'facingMode': 'user', // Front camera preference
+        'width': {'ideal': 1280},
+        'height': {'ideal': 720} 
+      }
+    };
+
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      localVideo.srcObject = stream;
+      localStream = stream;
+      // remoteVideo is handled via onAddRemoteStream
+    } catch (e) {
+      // Re-throw so the UI knows permissions failed
+      throw e; 
+    }
   }
 
-  // 4. Hang Up & Dispose
+  // 4. Hang Up
   Future<void> hangUp(RTCVideoRenderer localVideo) async {
     if (localVideo.srcObject != null) {
       List<MediaStreamTrack> tracks = localVideo.srcObject!.getTracks();
@@ -137,27 +142,17 @@ class Signaling {
         track.stop();
       }
     }
-
-    if (remoteStream != null) {
-      remoteStream!.getTracks().forEach((track) => track.stop());
-    }
-
-    if (peerConnection != null) {
-      peerConnection!.close();
-    }
+    if (remoteStream != null) remoteStream!.getTracks().forEach((track) => track.stop());
+    if (peerConnection != null) peerConnection!.close();
     
-    // Optional: Mark room as ended in Firestore if needed
-    // if (roomId != null) { ... }
-
     localStream?.dispose();
     remoteStream?.dispose();
+    localStream = null;
+    remoteStream = null;
   }
 
   void registerPeerConnectionListeners() {
-    peerConnection?.onIceConnectionState = (RTCIceConnectionState state) {
-      // print('Connection state change: $state');
-    };
-
+    peerConnection?.onIceConnectionState = (RTCIceConnectionState state) {};
     peerConnection?.onTrack = (RTCTrackEvent event) {
       event.streams[0].getTracks().forEach((track) {
         remoteStream?.addTrack(track);
