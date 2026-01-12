@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:telmed/widgets/common_widget.dart'; // IMPORTANT: Adjust path to your project
+import 'package:telmed/widgets/common_widget.dart';
 
 /// ---------------------------------------------------------------------------
 /// TELMED FLAGSHIP LANDING PAGE - V6.0 (REFACTORED ARCHITECTURE)
@@ -185,7 +185,7 @@ class _HeroSection extends StatelessWidget {
   }
 }
 
-// --- 2. HOMECARE IMMERSIVE ---
+// --- 2. HOMECARE ---
 class _HomecareImmersiveSection extends StatelessWidget {
   const _HomecareImmersiveSection();
 
