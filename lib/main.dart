@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:telmed/pages/home_page.dart'; // Ensure the path matches your project name
+import 'package:firebase_core/firebase_core.dart'; // Add this import
+import 'package:telmed/pages/home_page.dart';
+import 'firebase_options.dart'; // Add this import
 
-void main() {
+void main() async {
+  // Ensure widgets are ready for async operations
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Firebase for Web
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const TelmedApp());
 }
 

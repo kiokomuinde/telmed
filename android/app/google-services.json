@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "279256223636",
+    "project_id": "telmed-5c20c",
+    "storage_bucket": "telmed-5c20c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:279256223636:android:5a24a81ca0e16bd0dfc981",
+        "android_client_info": {
+          "package_name": "com.example.telmed"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiftojD16JyzG_zvB3f1r0kTqB-SVnEcA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
