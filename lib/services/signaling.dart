@@ -16,6 +16,11 @@ class Signaling {
   String? roomId;
   StreamHandler? onAddRemoteStream;
 
+  // --- STREAM FOR QUEUE SYSTEM ---
+  Stream<QuerySnapshot> getRoomsStream() {
+    return FirebaseFirestore.instance.collection('rooms').snapshots();
+  }
+
   // --- 1. SESSION CONTROL ---
 
   Future<String> createRoom(RTCVideoRenderer remoteRenderer) async {
@@ -133,7 +138,6 @@ class Signaling {
     }
   }
 
-  // NEW: Toggle Microphone
   void toggleMic() {
     if (localStream != null) {
       bool enabled = localStream!.getAudioTracks()[0].enabled;
@@ -141,7 +145,6 @@ class Signaling {
     }
   }
 
-  // NEW: Toggle Camera
   void toggleCamera() {
     if (localStream != null) {
       bool enabled = localStream!.getVideoTracks()[0].enabled;
@@ -149,15 +152,33 @@ class Signaling {
     }
   }
 
-  Future<void> hangUp(RTCVideoRenderer localVideo) async {
+  // --- UPDATED HANG UP FUNCTION ---
+  // Now accepts an optional roomId to delete from Firestore
+  Future<void> hangUp(RTCVideoRenderer localVideo, {String? roomId}) async {
     if (localVideo.srcObject != null) {
       List<MediaStreamTrack> tracks = localVideo.srcObject!.getTracks();
       for (var track in tracks) {
         track.stop();
       }
     }
-    if (remoteStream != null) remoteStream!.getTracks().forEach((track) => track.stop());
-    if (peerConnection != null) peerConnection!.close();
+    
+    if (remoteStream != null) {
+      remoteStream!.getTracks().forEach((track) => track.stop());
+    }
+    
+    if (peerConnection != null) {
+      peerConnection!.close();
+    }
+
+    // DELETE ROOM FROM FIRESTORE IF ID IS PROVIDED
+    if (roomId != null) {
+      try {
+        await FirebaseFirestore.instance.collection('rooms').doc(roomId).delete();
+        print("Room $roomId deleted from Firestore.");
+      } catch (e) {
+        print("Error deleting room: $e");
+      }
+    }
     
     localStream?.dispose();
     remoteStream?.dispose();

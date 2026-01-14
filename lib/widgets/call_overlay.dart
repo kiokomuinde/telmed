@@ -22,7 +22,7 @@ class _CallOverlayState extends State<CallOverlay> {
   bool _callConnecting = false;
   bool _hasPermissions = false;
   
-  // Media State (New!)
+  // Media State
   bool _isMicOn = true;
   bool _isCameraOn = true;
 
@@ -47,7 +47,8 @@ class _CallOverlayState extends State<CallOverlay> {
 
   @override
   void dispose() {
-    _signaling.hangUp(_localRenderer);
+    // Pass roomId here to ensure cleanup on back navigation
+    _signaling.hangUp(_localRenderer, roomId: _roomId);
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     super.dispose();
@@ -127,20 +128,21 @@ class _CallOverlayState extends State<CallOverlay> {
           if (_hasPermissions) 
             _buildLocalThumbnail(),
 
-          // 5. Controls (Updated with Mic/Cam toggles)
+          // 5. Controls
           if (_paymentConfirmed && !_callConnecting) ...[
             _buildActionControls(),
             _buildRoomIdDisplay(),
           ],
 
-          // Close Button
+          // Close Button (Top Right)
           Positioned(
             top: 40,
             right: 30,
             child: IconButton(
               icon: const Icon(Icons.close, color: Colors.white, size: 30),
               onPressed: () {
-                 _signaling.hangUp(_localRenderer);
+                 // UPDATED: Pass roomId to delete it from Firebase
+                 _signaling.hangUp(_localRenderer, roomId: _roomId);
                  Navigator.pop(context);
               },
             ),
@@ -231,7 +233,6 @@ class _CallOverlayState extends State<CallOverlay> {
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: Colors.white38, width: 2),
         ),
-        // If camera is OFF, we can show an icon instead of the black renderer
         child: ClipRRect(
           borderRadius: BorderRadius.circular(18),
           child: _isCameraOn
@@ -253,7 +254,6 @@ class _CallOverlayState extends State<CallOverlay> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // 1. MIC TOGGLE
           _circleBtn(
             icon: _isMicOn ? Icons.mic : Icons.mic_off, 
             bgColor: _isMicOn ? Colors.white10 : Colors.white, 
@@ -263,23 +263,19 @@ class _CallOverlayState extends State<CallOverlay> {
               setState(() => _isMicOn = !_isMicOn);
             }
           ),
-          
           const SizedBox(width: 25),
-          
-          // 2. HANG UP (Always Red)
+          // HANG UP BUTTON
           _circleBtn(
             icon: Icons.call_end, 
             bgColor: Colors.red, 
             iconColor: Colors.white,
             onTap: () {
-              _signaling.hangUp(_localRenderer);
+              // UPDATED: Pass roomId to delete it
+              _signaling.hangUp(_localRenderer, roomId: _roomId);
               Navigator.pop(context);
             }
           ),
-          
           const SizedBox(width: 25),
-          
-          // 3. VIDEO TOGGLE
           _circleBtn(
             icon: _isCameraOn ? Icons.videocam : Icons.videocam_off, 
             bgColor: _isCameraOn ? Colors.white10 : Colors.white, 
@@ -294,7 +290,6 @@ class _CallOverlayState extends State<CallOverlay> {
     );
   }
 
-  // Updated helper to accept dynamic colors
   Widget _circleBtn({
     required IconData icon, 
     required Color bgColor, 

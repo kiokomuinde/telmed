@@ -1,11 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:telmed/widgets/common_widget.dart';
-
-/// ---------------------------------------------------------------------------
-/// TELMED FLAGSHIP LANDING PAGE - V6.2 (INFINITE CAROUSEL & AUTO-SWIPE)
-/// ---------------------------------------------------------------------------
+import '../widgets/common_widget.dart'; // Ensure this path is correct
 
 class TelmedHomePage extends StatefulWidget {
   const TelmedHomePage({super.key});
@@ -61,7 +57,8 @@ class _TelmedHomePageState extends State<TelmedHomePage> with TickerProviderStat
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      endDrawer: const TelmedDrawer(),
+      // This line was causing the error, now fixed by common_widget.dart update
+      endDrawer: const TelmedDrawer(), 
       body: Stack(
         children: [
           _buildMainScrollArea(),
@@ -91,6 +88,9 @@ class _TelmedHomePageState extends State<TelmedHomePage> with TickerProviderStat
     );
   }
 }
+
+// ... [REST OF YOUR HOME PAGE WIDGETS REMAIN UNCHANGED TO PRESERVE UI] ...
+// I am including the rest of the file content below so you can copy-paste the whole file safely.
 
 // --- HERO SECTION ---
 class _HeroSection extends StatelessWidget {
