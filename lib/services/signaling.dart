@@ -29,7 +29,6 @@ class Signaling {
     peerConnection = await createPeerConnection(configuration);
     registerPeerConnectionListeners();
 
-    // Add local tracks to the connection so the other person can see/hear us
     if (localStream != null) {
       localStream!.getTracks().forEach((track) {
         peerConnection?.addTrack(track, localStream!);
@@ -88,14 +87,16 @@ class Signaling {
         calleeCandidatesCollection.add(candidate.toMap());
       };
 
+      // --- FIXED: Standard Track Handling ---
       peerConnection?.onTrack = (RTCTrackEvent event) {
         if (event.streams.isNotEmpty) {
           remoteStream = event.streams[0];
           if (onAddRemoteStream != null) {
-             onAddRemoteStream!(remoteStream!);
+            onAddRemoteStream!(remoteStream!);
           }
         }
       };
+      // -------------------------------------
 
       var data = roomSnapshot.data() as Map<String, dynamic>;
       var offer = data['offer'];
@@ -140,7 +141,7 @@ class Signaling {
       localVideo.srcObject = stream;
       localStream = stream;
     } catch (e) {
-      print("Error opening media: $e");
+      print("WEB_RTC Error: $e");
     }
   }
 
@@ -190,7 +191,7 @@ class Signaling {
 
   void registerPeerConnectionListeners() {
     peerConnection?.onIceConnectionState = (RTCIceConnectionState state) {
-      print('Connection state change: $state');
+      print('WEB_RTC Connection State: $state');
     };
     
     peerConnection?.onTrack = (RTCTrackEvent event) {
