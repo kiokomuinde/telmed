@@ -27,14 +27,26 @@ class _CallOverlayState extends State<CallOverlay> {
   bool _isCameraOn = true;
 
   // DEBUGGING STATES
-  String? _localMediaError; // "Camera not found", etc.
-  String _connectionStatus = "Initializing"; // "Connected", "Failed", etc.
+  String? _localMediaError; 
+  String _connectionStatus = "Initializing"; 
   String? _roomId;
 
   @override
   void initState() {
     super.initState();
     _initRenderers();
+
+    // --- NEW: LISTEN FOR HANGUP FROM DOCTOR ---
+    _signaling.onCallEnded = () {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Call ended by doctor"), backgroundColor: Colors.red),
+        );
+        // Force cleanup and close
+        _signaling.hangUp(_localRenderer); 
+        Navigator.pop(context);
+      }
+    };
   }
 
   Future<void> _initRenderers() async {
@@ -46,11 +58,10 @@ class _CallOverlayState extends State<CallOverlay> {
       if (mounted) setState(() {});
     };
 
-    // Listen for connection health
     _signaling.onConnectionState = (state) {
       if (mounted) {
         setState(() {
-          _connectionStatus = state.toString().split('.').last; // e.g., "connected", "failed"
+          _connectionStatus = state.toString().split('.').last;
         });
       }
     };
@@ -92,7 +103,6 @@ class _CallOverlayState extends State<CallOverlay> {
       if (mounted) {
         setState(() {
           _isPaying = false;
-          // Capture friendly error messages
           String errorStr = e.toString();
           if (errorStr.contains('NotFoundError')) {
              _localMediaError = "Hardware Missing: No Camera/Mic found.";
@@ -142,7 +152,6 @@ class _CallOverlayState extends State<CallOverlay> {
             const Center(child: CircularProgressIndicator(color: Colors.greenAccent)),
 
           // 4. Local Preview (Floating)
-          // Always show this if we tried to get permissions, even if it failed (to show error)
           if (_hasPermissions || _localMediaError != null) 
             _buildLocalThumbnail(),
 
@@ -167,19 +176,14 @@ class _CallOverlayState extends State<CallOverlay> {
     );
   }
 
-  // --- NEW: DEBUGGING REMOTE VIEW ---
   Widget _buildRemoteView() {
     bool hasRemoteVideo = _remoteRenderer.srcObject != null && 
                           _remoteRenderer.srcObject!.getVideoTracks().isNotEmpty;
-    bool hasRemoteAudio = _remoteRenderer.srcObject != null && 
-                          _remoteRenderer.srcObject!.getAudioTracks().isNotEmpty;
 
     return Stack(
       children: [
-        // The Video
         RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
         
-        // The Debug Overlay (Only shows if there is an issue)
         if (!hasRemoteVideo)
           Container(
             color: Colors.black87,
@@ -189,44 +193,15 @@ class _CallOverlayState extends State<CallOverlay> {
                 children: [
                   const Icon(Icons.videocam_off, color: Colors.redAccent, size: 50),
                   const SizedBox(height: 20),
-                  Text(
-                    "REMOTE VIDEO MISSING",
-                    style: GoogleFonts.plusJakartaSans(color: Colors.redAccent, fontWeight: FontWeight.bold),
-                  ),
+                  Text("REMOTE VIDEO MISSING", style: GoogleFonts.plusJakartaSans(color: Colors.redAccent, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
-                  Text(
-                    "Status: $_connectionStatus",
-                    style: const TextStyle(color: Colors.white70),
-                  ),
+                  Text("Status: $_connectionStatus", style: const TextStyle(color: Colors.white70)),
                   const SizedBox(height: 5),
-                  const Text(
-                    "Waiting for doctor's stream...",
-                    style: TextStyle(color: Colors.white38),
-                  ),
+                  const Text("Waiting for doctor's stream...", style: TextStyle(color: Colors.white38)),
                 ],
               ),
             ),
           ),
-        
-        // Audio Warning (Overlay at top)
-        if (hasRemoteVideo && !hasRemoteAudio)
-           Positioned(
-             top: 100, left: 0, right: 0,
-             child: Center(
-               child: Container(
-                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                 decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
-                 child: const Row(
-                   mainAxisSize: MainAxisSize.min,
-                   children: [
-                     Icon(Icons.mic_off, color: Colors.orange, size: 16),
-                     SizedBox(width: 8),
-                     Text("Remote Audio Missing", style: TextStyle(color: Colors.white)),
-                   ],
-                 ),
-               ),
-             ),
-           ),
       ],
     );
   }
@@ -241,7 +216,6 @@ class _CallOverlayState extends State<CallOverlay> {
             "Room ID: ${_roomId ?? 'Generating...'}",
             style: const TextStyle(color: Colors.white54, fontSize: 12),
           ),
-          // Connection Debug Text
           Text(
             "Conn: $_connectionStatus",
             style: TextStyle(
@@ -268,7 +242,6 @@ class _CallOverlayState extends State<CallOverlay> {
             Text("KSH 54", style: GoogleFonts.plusJakartaSans(fontSize: 48, fontWeight: FontWeight.w900, color: const Color(0xFF1B4D2C))),
             const SizedBox(height: 30),
             
-            // SHOW LOCAL ERRORS HERE
             if (_localMediaError != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 20),

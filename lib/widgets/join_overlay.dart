@@ -29,6 +29,18 @@ class _JoinOverlayState extends State<JoinOverlay> {
   void initState() {
     super.initState();
     _initRenderers();
+
+    // --- NEW: LISTEN FOR HANGUP FROM PATIENT ---
+    _signaling.onCallEnded = () {
+      if (mounted && _isJoined) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           const SnackBar(content: Text("Call ended by patient"), backgroundColor: Colors.red),
+         );
+         // Force cleanup and close
+         _signaling.hangUp(_localRenderer);
+         Navigator.pop(context);
+      }
+    };
   }
 
   Future<void> _initRenderers() async {
@@ -99,9 +111,6 @@ class _JoinOverlayState extends State<JoinOverlay> {
   }
 
   Widget _buildQueueList() {
-    // [CODE OMITTED FOR BREVITY - Same as previous version]
-    // Copy the exact _buildQueueList from the previous successful version
-    // It is unaffected by these changes.
     return Center(
       child: Container(
         width: 600,
@@ -114,7 +123,6 @@ class _JoinOverlayState extends State<JoinOverlay> {
             Text("Waiting Patients", style: GoogleFonts.plusJakartaSans(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 5),
             
-            // SHOW LOCAL ERROR IF CAMERA FAILED ON STARTUP
             if (_localMediaError != null)
               Text("⚠️ Local Error: $_localMediaError", style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))
             else
@@ -163,12 +171,9 @@ class _JoinOverlayState extends State<JoinOverlay> {
       await _signaling.joinRoom(roomId, _remoteRenderer);
       setState(() => _isJoined = true);
     } catch (e) {
-      // Capture error to display in UI
       setState(() {
         _localMediaError = e.toString();
-        // Even if media fails, we might still want to join (one-way video)
-        // But for debugging, we show the error.
-        // Attempting join without local media:
+        // Continue anyway for debugging
         _signaling.joinRoom(roomId, _remoteRenderer);
         _isJoined = true;
       });
@@ -182,7 +187,6 @@ class _JoinOverlayState extends State<JoinOverlay> {
       children: [
         RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
         
-        // --- NEW: REMOTE DEBUG OVERLAY ---
         if (!hasRemoteVideo)
           Container(
             color: Colors.black87,
@@ -220,7 +224,6 @@ class _JoinOverlayState extends State<JoinOverlay> {
     );
   }
 
-  // _buildControls same as before...
   Widget _buildControls() {
     return Align(
       alignment: Alignment.bottomCenter,
