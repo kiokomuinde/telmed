@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 typedef StreamHandler = void Function(MediaStream stream);
+typedef ConnectionHandler = void Function(RTCPeerConnectionState state);
 
 class Signaling {
   Map<String, dynamic> configuration = {
@@ -14,7 +15,9 @@ class Signaling {
   MediaStream? localStream;
   MediaStream? remoteStream;
   String? roomId;
+  
   StreamHandler? onAddRemoteStream;
+  ConnectionHandler? onConnectionState; // New callback for UI feedback
 
   Stream<QuerySnapshot> getRoomsStream() {
     return FirebaseFirestore.instance.collection('rooms').snapshots();
@@ -87,7 +90,6 @@ class Signaling {
         calleeCandidatesCollection.add(candidate.toMap());
       };
 
-      // --- FIXED: Standard Track Handling ---
       peerConnection?.onTrack = (RTCTrackEvent event) {
         if (event.streams.isNotEmpty) {
           remoteStream = event.streams[0];
@@ -96,7 +98,6 @@ class Signaling {
           }
         }
       };
-      // -------------------------------------
 
       var data = roomSnapshot.data() as Map<String, dynamic>;
       var offer = data['offer'];
@@ -136,12 +137,14 @@ class Signaling {
       }
     };
 
+    // We allow this to throw errors so the UI can catch them
     try {
       var stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
       localVideo.srcObject = stream;
       localStream = stream;
     } catch (e) {
-      print("WEB_RTC Error: $e");
+      print("Signaling: Error opening user media: $e");
+      rethrow; // Pass error to UI
     }
   }
 
@@ -190,8 +193,15 @@ class Signaling {
   }
 
   void registerPeerConnectionListeners() {
+    peerConnection?.onConnectionState = (RTCPeerConnectionState state) {
+      print('Signaling: Connection state change: $state');
+      if (onConnectionState != null) {
+        onConnectionState!(state);
+      }
+    };
+    
     peerConnection?.onIceConnectionState = (RTCIceConnectionState state) {
-      print('WEB_RTC Connection State: $state');
+      print('Signaling: ICE Connection State: $state');
     };
     
     peerConnection?.onTrack = (RTCTrackEvent event) {

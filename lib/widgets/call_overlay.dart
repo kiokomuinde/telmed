@@ -26,7 +26,9 @@ class _CallOverlayState extends State<CallOverlay> {
   bool _isMicOn = true;
   bool _isCameraOn = true;
 
-  String? _permissionError;
+  // DEBUGGING STATES
+  String? _localMediaError; // "Camera not found", etc.
+  String _connectionStatus = "Initializing"; // "Connected", "Failed", etc.
   String? _roomId;
 
   @override
@@ -43,11 +45,19 @@ class _CallOverlayState extends State<CallOverlay> {
       _remoteRenderer.srcObject = stream;
       if (mounted) setState(() {});
     };
+
+    // Listen for connection health
+    _signaling.onConnectionState = (state) {
+      if (mounted) {
+        setState(() {
+          _connectionStatus = state.toString().split('.').last; // e.g., "connected", "failed"
+        });
+      }
+    };
   }
 
   @override
   void dispose() {
-    // Pass roomId here to ensure cleanup on back navigation
     _signaling.hangUp(_localRenderer, roomId: _roomId);
     _localRenderer.dispose();
     _remoteRenderer.dispose();
@@ -57,7 +67,7 @@ class _CallOverlayState extends State<CallOverlay> {
   Future<void> _validateAndProcessPayment() async {
     setState(() {
       _isPaying = true;
-      _permissionError = null;
+      _localMediaError = null;
     });
 
     try {
@@ -82,13 +92,14 @@ class _CallOverlayState extends State<CallOverlay> {
       if (mounted) {
         setState(() {
           _isPaying = false;
+          // Capture friendly error messages
           String errorStr = e.toString();
-          if (errorStr.contains('NotAllowedError') || errorStr.contains('PermissionDeniedError')) {
-             _permissionError = "Camera blocked! Please click the lock icon 🔒 in your browser address bar to allow access.";
-          } else if (errorStr.contains('NotFoundError')) {
-             _permissionError = "No camera or microphone found on this device.";
+          if (errorStr.contains('NotFoundError')) {
+             _localMediaError = "Hardware Missing: No Camera/Mic found.";
+          } else if (errorStr.contains('NotAllowedError') || errorStr.contains('PermissionDeniedError')) {
+             _localMediaError = "Permission Denied: Click lock icon 🔒 to allow.";
           } else {
-             _permissionError = "Connection failed: Please allow camera access to continue.";
+             _localMediaError = "Media Error: $e";
           }
         });
       }
@@ -99,11 +110,15 @@ class _CallOverlayState extends State<CallOverlay> {
     setState(() => _callConnecting = true);
     try {
       _roomId = await _signaling.createRoom(_remoteRenderer);
-      print("TELMED ROOM ID CREATED: $_roomId");
       if (mounted) setState(() => _callConnecting = false);
     } catch (e) {
       debugPrint("Call failed: $e");
-      if (mounted) setState(() => _callConnecting = false);
+      if (mounted) {
+        setState(() {
+          _callConnecting = false;
+          _connectionStatus = "Room Creation Failed: $e";
+        });
+      }
     }
   }
 
@@ -113,9 +128,11 @@ class _CallOverlayState extends State<CallOverlay> {
       backgroundColor: Colors.black.withOpacity(0.95),
       body: Stack(
         children: [
-          // 1. Remote Video Layer
+          // 1. Remote Video Layer (Big Screen)
           if (_paymentConfirmed && !_callConnecting)
-            Positioned.fill(child: RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)),
+            Positioned.fill(
+              child: _buildRemoteView(),
+            ),
 
           // 2. Payment UI
           if (!_paymentConfirmed) _buildPaymentUI(),
@@ -125,7 +142,8 @@ class _CallOverlayState extends State<CallOverlay> {
             const Center(child: CircularProgressIndicator(color: Colors.greenAccent)),
 
           // 4. Local Preview (Floating)
-          if (_hasPermissions) 
+          // Always show this if we tried to get permissions, even if it failed (to show error)
+          if (_hasPermissions || _localMediaError != null) 
             _buildLocalThumbnail(),
 
           // 5. Controls
@@ -134,14 +152,11 @@ class _CallOverlayState extends State<CallOverlay> {
             _buildRoomIdDisplay(),
           ],
 
-          // Close Button (Top Right)
           Positioned(
-            top: 40,
-            right: 30,
+            top: 40, right: 30,
             child: IconButton(
               icon: const Icon(Icons.close, color: Colors.white, size: 30),
               onPressed: () {
-                 // UPDATED: Pass roomId to delete it from Firebase
                  _signaling.hangUp(_localRenderer, roomId: _roomId);
                  Navigator.pop(context);
               },
@@ -152,13 +167,89 @@ class _CallOverlayState extends State<CallOverlay> {
     );
   }
 
+  // --- NEW: DEBUGGING REMOTE VIEW ---
+  Widget _buildRemoteView() {
+    bool hasRemoteVideo = _remoteRenderer.srcObject != null && 
+                          _remoteRenderer.srcObject!.getVideoTracks().isNotEmpty;
+    bool hasRemoteAudio = _remoteRenderer.srcObject != null && 
+                          _remoteRenderer.srcObject!.getAudioTracks().isNotEmpty;
+
+    return Stack(
+      children: [
+        // The Video
+        RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+        
+        // The Debug Overlay (Only shows if there is an issue)
+        if (!hasRemoteVideo)
+          Container(
+            color: Colors.black87,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.videocam_off, color: Colors.redAccent, size: 50),
+                  const SizedBox(height: 20),
+                  Text(
+                    "REMOTE VIDEO MISSING",
+                    style: GoogleFonts.plusJakartaSans(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    "Status: $_connectionStatus",
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 5),
+                  const Text(
+                    "Waiting for doctor's stream...",
+                    style: TextStyle(color: Colors.white38),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        
+        // Audio Warning (Overlay at top)
+        if (hasRemoteVideo && !hasRemoteAudio)
+           Positioned(
+             top: 100, left: 0, right: 0,
+             child: Center(
+               child: Container(
+                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                 decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+                 child: const Row(
+                   mainAxisSize: MainAxisSize.min,
+                   children: [
+                     Icon(Icons.mic_off, color: Colors.orange, size: 16),
+                     SizedBox(width: 8),
+                     Text("Remote Audio Missing", style: TextStyle(color: Colors.white)),
+                   ],
+                 ),
+               ),
+             ),
+           ),
+      ],
+    );
+  }
+
   Widget _buildRoomIdDisplay() {
     return Positioned(
-      top: 40,
-      left: 30,
-      child: SelectableText(
-        "Room ID: ${_roomId ?? 'Generating...'}",
-        style: const TextStyle(color: Colors.white54, fontSize: 12),
+      top: 40, left: 30,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelectableText(
+            "Room ID: ${_roomId ?? 'Generating...'}",
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          // Connection Debug Text
+          Text(
+            "Conn: $_connectionStatus",
+            style: TextStyle(
+              color: _connectionStatus == 'connected' ? Colors.green : Colors.orange, 
+              fontSize: 10
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -174,25 +265,20 @@ class _CallOverlayState extends State<CallOverlay> {
           children: [
             const Icon(Icons.security_rounded, size: 60, color: Color(0xFF2D7D46)),
             const SizedBox(height: 20),
-            Text("Secure Voice Session", style: GoogleFonts.plusJakartaSans(fontSize: 16, color: Colors.grey)),
             Text("KSH 54", style: GoogleFonts.plusJakartaSans(fontSize: 48, fontWeight: FontWeight.w900, color: const Color(0xFF1B4D2C))),
-            
             const SizedBox(height: 30),
             
-            if (_permissionError != null)
+            // SHOW LOCAL ERRORS HERE
+            if (_localMediaError != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 20),
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.red.shade200)
-                ),
+                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.red.shade200)),
                 child: Row(
                   children: [
                     const Icon(Icons.error_outline, color: Colors.red),
                     const SizedBox(width: 10),
-                    Expanded(child: Text(_permissionError!, style: const TextStyle(color: Colors.red, fontSize: 13))),
+                    Expanded(child: Text(_localMediaError!, style: const TextStyle(color: Colors.red, fontSize: 13))),
                   ],
                 ),
               ),
@@ -200,20 +286,13 @@ class _CallOverlayState extends State<CallOverlay> {
             ElevatedButton(
               onPressed: _isPaying ? null : _validateAndProcessPayment,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _permissionError != null ? Colors.redAccent : const Color(0xFFF9A825),
+                backgroundColor: _localMediaError != null ? Colors.redAccent : const Color(0xFFF9A825),
                 minimumSize: const Size(double.infinity, 65),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               ),
               child: _isPaying
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                         SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
-                         SizedBox(width: 15),
-                         Text("Accessing Camera...", style: TextStyle(color: Colors.white))
-                      ],
-                    )
-                  : Text(_permissionError != null ? "RETRY ACCESS" : "PAY & CONNECT", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : Text(_localMediaError != null ? "RETRY ACCESS" : "PAY & CONNECT", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
             ),
           ],
         ),
@@ -223,24 +302,18 @@ class _CallOverlayState extends State<CallOverlay> {
 
   Widget _buildLocalThumbnail() {
     return Positioned(
-      bottom: 140,
-      right: 25,
+      bottom: 140, right: 25,
       child: Container(
-        width: 120,
-        height: 180,
-        decoration: BoxDecoration(
-          color: Colors.black54,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white38, width: 2),
-        ),
+        width: 120, height: 180,
+        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white38, width: 2)),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(18),
-          child: _isCameraOn
-            ? RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
-            : Container(
-                color: Colors.black87,
-                child: const Center(child: Icon(Icons.videocam_off, color: Colors.white38, size: 40)),
-              ),
+          child: _localMediaError != null
+              ? Container(
+                  color: Colors.red.withOpacity(0.2),
+                  child: const Center(child: Icon(Icons.no_photography, color: Colors.red, size: 30)),
+                )
+              : RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
         ),
       ),
     );
@@ -248,9 +321,7 @@ class _CallOverlayState extends State<CallOverlay> {
 
   Widget _buildActionControls() {
     return Positioned(
-      bottom: 40,
-      left: 0,
-      right: 0,
+      bottom: 40, left: 0, right: 0,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -264,13 +335,9 @@ class _CallOverlayState extends State<CallOverlay> {
             }
           ),
           const SizedBox(width: 25),
-          // HANG UP BUTTON
           _circleBtn(
-            icon: Icons.call_end, 
-            bgColor: Colors.red, 
-            iconColor: Colors.white,
+            icon: Icons.call_end, bgColor: Colors.red, iconColor: Colors.white,
             onTap: () {
-              // UPDATED: Pass roomId to delete it
               _signaling.hangUp(_localRenderer, roomId: _roomId);
               Navigator.pop(context);
             }
@@ -290,12 +357,7 @@ class _CallOverlayState extends State<CallOverlay> {
     );
   }
 
-  Widget _circleBtn({
-    required IconData icon, 
-    required Color bgColor, 
-    required Color iconColor, 
-    VoidCallback? onTap
-  }) {
+  Widget _circleBtn({required IconData icon, required Color bgColor, required Color iconColor, VoidCallback? onTap}) {
     return InkWell(
       onTap: onTap,
       child: Container(
