@@ -16,7 +16,6 @@ class Signaling {
   String? roomId;
   StreamHandler? onAddRemoteStream;
 
-  // --- STREAM FOR QUEUE SYSTEM ---
   Stream<QuerySnapshot> getRoomsStream() {
     return FirebaseFirestore.instance.collection('rooms').snapshots();
   }
@@ -30,9 +29,12 @@ class Signaling {
     peerConnection = await createPeerConnection(configuration);
     registerPeerConnectionListeners();
 
-    localStream?.getTracks().forEach((track) {
-      peerConnection?.addTrack(track, localStream!);
-    });
+    // Add local tracks to the connection so the other person can see/hear us
+    if (localStream != null) {
+      localStream!.getTracks().forEach((track) {
+        peerConnection?.addTrack(track, localStream!);
+      });
+    }
 
     var callerCandidatesCollection = roomRef.collection('callerCandidates');
     peerConnection?.onIceCandidate = (RTCIceCandidate candidate) {
@@ -75,9 +77,11 @@ class Signaling {
       peerConnection = await createPeerConnection(configuration);
       registerPeerConnectionListeners();
 
-      localStream?.getTracks().forEach((track) {
-        peerConnection?.addTrack(track, localStream!);
-      });
+      if (localStream != null) {
+        localStream!.getTracks().forEach((track) {
+          peerConnection?.addTrack(track, localStream!);
+        });
+      }
 
       var calleeCandidatesCollection = roomRef.collection('calleeCandidates');
       peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
@@ -85,10 +89,12 @@ class Signaling {
       };
 
       peerConnection?.onTrack = (RTCTrackEvent event) {
-        event.streams[0].getTracks().forEach((track) {
-          remoteStream?.addTrack(track);
-        });
-        if (onAddRemoteStream != null) onAddRemoteStream!(event.streams[0]);
+        if (event.streams.isNotEmpty) {
+          remoteStream = event.streams[0];
+          if (onAddRemoteStream != null) {
+             onAddRemoteStream!(remoteStream!);
+          }
+        }
       };
 
       var data = roomSnapshot.data() as Map<String, dynamic>;
@@ -134,26 +140,24 @@ class Signaling {
       localVideo.srcObject = stream;
       localStream = stream;
     } catch (e) {
-      throw e;
+      print("Error opening media: $e");
     }
   }
 
   void toggleMic() {
-    if (localStream != null) {
+    if (localStream != null && localStream!.getAudioTracks().isNotEmpty) {
       bool enabled = localStream!.getAudioTracks()[0].enabled;
       localStream!.getAudioTracks()[0].enabled = !enabled;
     }
   }
 
   void toggleCamera() {
-    if (localStream != null) {
+    if (localStream != null && localStream!.getVideoTracks().isNotEmpty) {
       bool enabled = localStream!.getVideoTracks()[0].enabled;
       localStream!.getVideoTracks()[0].enabled = !enabled;
     }
   }
 
-  // --- UPDATED HANG UP FUNCTION ---
-  // Now accepts an optional roomId to delete from Firestore
   Future<void> hangUp(RTCVideoRenderer localVideo, {String? roomId}) async {
     if (localVideo.srcObject != null) {
       List<MediaStreamTrack> tracks = localVideo.srcObject!.getTracks();
@@ -170,11 +174,9 @@ class Signaling {
       peerConnection!.close();
     }
 
-    // DELETE ROOM FROM FIRESTORE IF ID IS PROVIDED
     if (roomId != null) {
       try {
         await FirebaseFirestore.instance.collection('rooms').doc(roomId).delete();
-        print("Room $roomId deleted from Firestore.");
       } catch (e) {
         print("Error deleting room: $e");
       }
@@ -187,12 +189,15 @@ class Signaling {
   }
 
   void registerPeerConnectionListeners() {
-    peerConnection?.onIceConnectionState = (RTCIceConnectionState state) {};
+    peerConnection?.onIceConnectionState = (RTCIceConnectionState state) {
+      print('Connection state change: $state');
+    };
+    
     peerConnection?.onTrack = (RTCTrackEvent event) {
-      event.streams[0].getTracks().forEach((track) {
-        remoteStream?.addTrack(track);
-      });
-      if (onAddRemoteStream != null) onAddRemoteStream!(event.streams[0]);
+      if (event.streams.isNotEmpty) {
+        remoteStream = event.streams[0];
+        if (onAddRemoteStream != null) onAddRemoteStream!(remoteStream!);
+      }
     };
   }
 }
