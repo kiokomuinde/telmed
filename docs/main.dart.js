@@ -84011,7 +84011,7 @@ break
 case 3:q=2
 h=p.pop()
 m=A.a3(h)
-A.iT("Error opening media: "+A.j(m))
+A.iT("WEB_RTC Error: "+A.j(m))
 s=5
 break
 case 2:s=1
@@ -84140,7 +84140,7 @@ A.aeM.prototype={
 $1(a){return a.dq()},
 $S:81}
 A.aeR.prototype={
-$1(a){A.iT("Connection state change: "+a.k(0))},
+$1(a){A.iT("WEB_RTC Connection State: "+a.k(0))},
 $S:566}
 A.aeS.prototype={
 $1(a){var s,r=a.b
