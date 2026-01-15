@@ -18,10 +18,8 @@ class _JoinOverlayState extends State<JoinOverlay> {
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
 
   bool _isJoined = false;
-  bool _isMicOn = true;
-  bool _isCameraOn = true;
+  bool _isProcessing = false; // PREVENTS DOUBLE CLICKS
   
-  // DEBUGGING STATES
   String? _localMediaError;
   String _connectionStatus = "Ready"; 
 
@@ -30,13 +28,11 @@ class _JoinOverlayState extends State<JoinOverlay> {
     super.initState();
     _initRenderers();
 
-    // --- NEW: LISTEN FOR HANGUP FROM PATIENT ---
     _signaling.onCallEnded = () {
       if (mounted && _isJoined) {
          ScaffoldMessenger.of(context).showSnackBar(
            const SnackBar(content: Text("Call ended by patient"), backgroundColor: Colors.red),
          );
-         // Force cleanup and close
          _signaling.hangUp(_localRenderer);
          Navigator.pop(context);
       }
@@ -121,13 +117,6 @@ class _JoinOverlayState extends State<JoinOverlay> {
             const Icon(Icons.medical_services, color: Color(0xFFF9A825), size: 50),
             const SizedBox(height: 15),
             Text("Waiting Patients", style: GoogleFonts.plusJakartaSans(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 5),
-            
-            if (_localMediaError != null)
-              Text("⚠️ Local Error: $_localMediaError", style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))
-            else
-              const Text("Select a patient from the queue to start consultation.", style: TextStyle(color: Colors.white54)),
-            
             const SizedBox(height: 30),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
@@ -149,8 +138,10 @@ class _JoinOverlayState extends State<JoinOverlay> {
                         leading: const Icon(Icons.person, color: Colors.white),
                         title: Text("Patient #${index + 1}", style: const TextStyle(color: Colors.white)),
                         trailing: ElevatedButton(
-                          onPressed: () => _joinRoom(room.id),
-                          child: const Text("ACCEPT"),
+                          onPressed: _isProcessing ? null : () => _joinRoom(room.id),
+                          child: _isProcessing && _isJoined == false 
+                             ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
+                             : const Text("ACCEPT"),
                         ),
                       );
                     },
@@ -165,7 +156,13 @@ class _JoinOverlayState extends State<JoinOverlay> {
   }
 
   Future<void> _joinRoom(String roomId) async {
-    setState(() => _localMediaError = null);
+    if (_isProcessing) return; // PREVENT DOUBLE CLICK
+    
+    setState(() {
+      _isProcessing = true;
+      _localMediaError = null;
+    });
+
     try {
       await _signaling.openUserMedia(_localRenderer, _remoteRenderer);
       await _signaling.joinRoom(roomId, _remoteRenderer);
@@ -173,10 +170,12 @@ class _JoinOverlayState extends State<JoinOverlay> {
     } catch (e) {
       setState(() {
         _localMediaError = e.toString();
-        // Continue anyway for debugging
+        // Try joining anyway (Receive Only mode)
         _signaling.joinRoom(roomId, _remoteRenderer);
         _isJoined = true;
       });
+    } finally {
+      setState(() => _isProcessing = false);
     }
   }
 
@@ -200,7 +199,7 @@ class _JoinOverlayState extends State<JoinOverlay> {
                   const SizedBox(height: 10),
                   Text("Connection: $_connectionStatus", style: const TextStyle(color: Colors.white70)),
                   if (_localMediaError != null)
-                     Text("Note: Your camera failed ($_localMediaError)", style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                     Text("Your Cam: $_localMediaError", style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
                 ],
               ),
             ),
@@ -219,26 +218,21 @@ class _JoinOverlayState extends State<JoinOverlay> {
             ),
           ),
         ),
-        _buildControls(),
-      ],
-    );
-  }
-
-  Widget _buildControls() {
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 50),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-             IconButton(icon: const Icon(Icons.call_end, color: Colors.red, size: 40), onPressed: () {
-               _signaling.hangUp(_localRenderer);
-               Navigator.pop(context);
-             })
-          ],
+        
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 50),
+            child: IconButton(
+               icon: const Icon(Icons.call_end, color: Colors.red, size: 40), 
+               onPressed: () {
+                 _signaling.hangUp(_localRenderer);
+                 Navigator.pop(context);
+               }
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 }
