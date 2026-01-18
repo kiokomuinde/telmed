@@ -57,7 +57,6 @@ class _TelmedHomePageState extends State<TelmedHomePage> with TickerProviderStat
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      // This line was causing the error, now fixed by common_widget.dart update
       endDrawer: const TelmedDrawer(), 
       body: Stack(
         children: [
@@ -88,9 +87,6 @@ class _TelmedHomePageState extends State<TelmedHomePage> with TickerProviderStat
     );
   }
 }
-
-// ... [REST OF YOUR HOME PAGE WIDGETS REMAIN UNCHANGED TO PRESERVE UI] ...
-// I am including the rest of the file content below so you can copy-paste the whole file safely.
 
 // --- HERO SECTION ---
 class _HeroSection extends StatelessWidget {
@@ -155,6 +151,13 @@ class _HeroSection extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 50),
+                          
+                          // --- ANIMATED BRANDING PROMPT ---
+                          const TypewriterPrompt(
+                            baseColor: Colors.white,
+                            accentColor: Color(0xFFF9A825), // Gold accent
+                          ),
+
                           if (isMobile) ...[
                              const ActionBtn(
                                 label: "Call Telmed (KSH 54)",
@@ -718,6 +721,13 @@ class _ElitePricingModule extends StatelessWidget {
                   Text("54", style: GoogleFonts.plusJakartaSans(fontSize: 120, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -5)),
                   const Text("KSH Per Consultation", style: TextStyle(color: Colors.white, fontSize: 18)),
                   const SizedBox(height: 40),
+                  
+                  // --- ANIMATED BRANDING PROMPT ---
+                  const TypewriterPrompt(
+                    baseColor: Colors.white,
+                    accentColor: Color(0xFFF9A825), // Gold accent
+                  ),
+                  
                   ElevatedButton(
                     onPressed: () {},
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF9A825), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))),

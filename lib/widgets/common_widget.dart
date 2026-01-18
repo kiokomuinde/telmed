@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:ui';
+import 'dart:async';
 
 // FIXED IMPORTS: Since these files are in the same folder (lib/widgets/), 
 // we just import them by name.
@@ -25,7 +26,6 @@ class BrandLogo extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Ensure you have this asset or replace with an Icon for testing if missing
         Image.asset(
           'assets/images/logo.webp',
           height: height,
@@ -278,6 +278,135 @@ class TelmedDrawer extends StatelessWidget {
       leading: Icon(icon, color: const Color(0xFF2D7D46)),
       title: Text(title, style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
       onTap: onTap,
+    );
+  }
+}
+
+// --- IMPROVED ANIMATED TYPEWRITER WIDGET ---
+class TypewriterPrompt extends StatefulWidget {
+  final Color baseColor; // The "Tap:" color
+  final Color accentColor; // The "Tell Med" color (e.g. Gold)
+
+  const TypewriterPrompt({
+    super.key, 
+    this.baseColor = Colors.white,
+    this.accentColor = const Color(0xFFF9A825), // Telmed Gold
+  });
+
+  @override
+  State<TypewriterPrompt> createState() => _TypewriterPromptState();
+}
+
+class _TypewriterPromptState extends State<TypewriterPrompt> with SingleTickerProviderStateMixin {
+  // BRANDING: Specifically "Tell Med" to match website name
+  final List<String> _phrases = ["Tell us...", "Tell Med."];
+  
+  int _currentPhraseIndex = 0;
+  String _displayedText = "";
+  bool _isBackspacing = false;
+  Timer? _timer;
+  
+  // Cursor Blinking Animation
+  late AnimationController _cursorController;
+
+  @override
+  void initState() {
+    super.initState();
+    _cursorController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..repeat(reverse: true);
+    
+    _startTyping();
+  }
+
+  void _startTyping() {
+    // Speed adjusted: Faster typing (80ms), slower backspacing (50ms)
+    _timer = Timer.periodic(const Duration(milliseconds: 80), (timer) {
+      if (!mounted) return;
+
+      setState(() {
+        String fullPhrase = _phrases[_currentPhraseIndex];
+
+        if (_isBackspacing) {
+          if (_displayedText.isNotEmpty) {
+            _displayedText = _displayedText.substring(0, _displayedText.length - 1);
+          } else {
+            _isBackspacing = false;
+            _currentPhraseIndex = (_currentPhraseIndex + 1) % _phrases.length;
+          }
+        } else {
+          if (_displayedText.length < fullPhrase.length) {
+            _displayedText = fullPhrase.substring(0, _displayedText.length + 1);
+          } else {
+            // Finished typing phrase.
+            // If it's "Tell Med.", hold it longer for branding effect.
+            int pauseDuration = fullPhrase.contains("Med") ? 3000 : 1500;
+            
+            _timer?.cancel();
+            Future.delayed(Duration(milliseconds: pauseDuration), () {
+              if (mounted) {
+                setState(() => _isBackspacing = true);
+                _startTyping();
+              }
+            });
+          }
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _cursorController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // "Tap:" Part
+          Text(
+            "Tap: ",
+            style: GoogleFonts.plusJakartaSans(
+              color: widget.baseColor.withOpacity(0.9),
+              fontWeight: FontWeight.w600,
+              fontSize: 16, // Slightly larger for compelling look
+            ),
+          ),
+          
+          // "Tell Med" Part (Branded Color)
+          Text(
+            _displayedText,
+            style: GoogleFonts.plusJakartaSans(
+              color: widget.accentColor, // Gold color to be "tasty"
+              fontWeight: FontWeight.w800, // Bold branding
+              fontSize: 16,
+              letterSpacing: 0.5,
+            ),
+          ),
+          
+          // Blinking Cursor
+          FadeTransition(
+            opacity: _cursorController,
+            child: Container(
+              margin: const EdgeInsets.only(left: 2, bottom: 4),
+              width: 3,
+              height: 18,
+              decoration: BoxDecoration(
+                color: widget.accentColor,
+                borderRadius: BorderRadius.circular(2)
+              ),
+            ),
+          )
+        ],
+      ),
     );
   }
 }
