@@ -16,11 +16,12 @@ class Signaling {
   RTCPeerConnection? peerConnection;
   MediaStream? localStream;
   MediaStream? remoteStream;
-  String? roomId;
+  String? roomId; // Class-level roomId
   
   StreamHandler? onAddRemoteStream;
   ConnectionHandler? onConnectionState;
   VoidCallback? onCallEnded;
+  VoidCallback? onCallAccepted; // NEW: Callback for immediate UI updates
 
   List<RTCIceCandidate> _candidateQueue = [];
   bool _isRemoteDescriptionSet = false;
@@ -53,7 +54,8 @@ class Signaling {
 
     Map<String, dynamic> roomWithOffer = {'offer': offer.toMap()};
     await roomRef.set(roomWithOffer);
-    roomId = roomRef.id;
+    
+    roomId = roomRef.id; // Store in class variable
 
     roomRef.snapshots().listen((snapshot) async {
       if (!snapshot.exists) {
@@ -66,6 +68,9 @@ class Signaling {
       bool isWaitingForAnswer = peerConnection?.signalingState == RTCSignalingState.RTCSignalingStateHaveLocalOffer;
       
       if (isWaitingForAnswer && data != null && data['answer'] != null) {
+        // NEW: Immediately notify UI that the doctor accepted the call
+        if (onCallAccepted != null) onCallAccepted!();
+
         var answer = RTCSessionDescription(data['answer']['sdp'], data['answer']['type']);
         await peerConnection?.setRemoteDescription(answer);
         _isRemoteDescriptionSet = true;
@@ -87,7 +92,8 @@ class Signaling {
   }
 
   // --- 2. JOINER (Doctor) ---
-  Future<void> joinRoom(String roomId, RTCVideoRenderer remoteVideo) async {
+  Future<void> joinRoom(String incomingRoomId, RTCVideoRenderer remoteVideo) async {
+    roomId = incomingRoomId; // Store in class variable so Doctor can also hang up effectively
     FirebaseFirestore db = FirebaseFirestore.instance;
     DocumentReference roomRef = db.collection('rooms').doc(roomId);
     var roomSnapshot = await roomRef.get();
@@ -189,28 +195,59 @@ class Signaling {
   }
 
   Future<void> hangUp(RTCVideoRenderer localVideo, {String? roomId}) async {
-    if (localVideo.srcObject != null) {
-      localVideo.srcObject!.getTracks().forEach((track) => track.stop());
-    }
-    if (remoteStream != null) {
-      remoteStream!.getTracks().forEach((track) => track.stop());
-    }
-    if (peerConnection != null) {
-      peerConnection!.close();
-    }
+    // 1. Database Cleanup First: Ensure UI updates immediately
+    String? targetRoomId = roomId ?? this.roomId;
 
-    if (roomId != null) {
+    if (targetRoomId != null) {
       try {
-        await FirebaseFirestore.instance.collection('rooms').doc(roomId).delete();
+        var db = FirebaseFirestore.instance;
+        var roomRef = db.collection('rooms').doc(targetRoomId);
+        
+        // Wipe subcollections first (Prevents Firestore 'ghost' documents)
+        var callerCandidates = await roomRef.collection('callerCandidates').get();
+        for (var doc in callerCandidates.docs) {
+          await doc.reference.delete();
+        }
+
+        var calleeCandidates = await roomRef.collection('calleeCandidates').get();
+        for (var doc in calleeCandidates.docs) {
+          await doc.reference.delete();
+        }
+
+        // Wipe the actual room document
+        await roomRef.delete();
+        print("Signaling: Room $targetRoomId successfully deleted from database.");
       } catch (e) {
-        print("Error deleting room: $e");
+        print("Signaling: Error deleting room from database: $e");
       }
     }
-    
+
+    // 2. Hardware Cleanup: Wrapped in try-catches to prevent function failures
+    try {
+      if (localVideo.srcObject != null) {
+        localVideo.srcObject!.getTracks().forEach((track) => track.stop());
+      }
+      localStream?.getTracks().forEach((track) => track.stop());
+    } catch(e) { print("Error stopping local tracks: $e"); }
+
+    try {
+      remoteStream?.getTracks().forEach((track) => track.stop());
+    } catch(e) { print("Error stopping remote tracks: $e"); }
+
+    // 3. Close the WebRTC PeerConnection safely
+    try {
+      if (peerConnection != null) {
+        await peerConnection!.close();
+      }
+    } catch(e) { print("Error closing peer connection: $e"); }
+
+    // 4. Memory Cleanup
     localStream?.dispose();
     remoteStream?.dispose();
     localStream = null;
     remoteStream = null;
+    peerConnection = null;
+    this.roomId = null;
     _isRemoteDescriptionSet = false;
     _candidateQueue.clear();
   }

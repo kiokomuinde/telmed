@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:ui';
 import '../services/signaling.dart';
+import '../services/prescription_service.dart';
+import 'package:telmed/pages/home_page.dart';
+import 'package:telmed/pages/patient_prescription_dashboard.dart'; // NEW: Imported your dashboard
 
 class CallOverlay extends StatefulWidget {
   const CallOverlay({super.key});
@@ -13,6 +17,8 @@ class CallOverlay extends StatefulWidget {
 
 class _CallOverlayState extends State<CallOverlay> {
   final Signaling _signaling = Signaling();
+  final PrescriptionService _prescriptionService = PrescriptionService();
+  
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
 
@@ -21,10 +27,12 @@ class _CallOverlayState extends State<CallOverlay> {
   bool _paymentConfirmed = false;
   bool _callConnecting = false;
   bool _hasPermissions = false;
+  bool _isCallActive = false;
   
-  // Media State
+  // Media & UI State
   bool _isMicOn = true;
   bool _isCameraOn = true;
+  bool _showPrescription = false; // Toggles the prescription view
 
   // DEBUGGING STATES
   String? _localMediaError; 
@@ -36,15 +44,18 @@ class _CallOverlayState extends State<CallOverlay> {
     super.initState();
     _initRenderers();
 
-    // --- NEW: LISTEN FOR HANGUP FROM DOCTOR ---
+    // --- LISTEN FOR HANGUP ---
     _signaling.onCallEnded = () {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Call ended by doctor"), backgroundColor: Colors.red),
+          const SnackBar(content: Text("The call has ended"), backgroundColor: Colors.red),
         );
-        // Force cleanup and close
         _signaling.hangUp(_localRenderer); 
-        Navigator.pop(context);
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const TelmedHomePage()),
+          (Route<dynamic> route) => false,
+        );
       }
     };
   }
@@ -53,15 +64,33 @@ class _CallOverlayState extends State<CallOverlay> {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
 
+    _signaling.onCallAccepted = () {
+      if (mounted) {
+        setState(() {
+          _isCallActive = true; 
+        });
+      }
+    };
+
     _signaling.onAddRemoteStream = (stream) {
-      _remoteRenderer.srcObject = stream;
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {
+          _remoteRenderer.srcObject = stream;
+          _isCallActive = true;
+        });
+      }
     };
 
     _signaling.onConnectionState = (state) {
       if (mounted) {
         setState(() {
           _connectionStatus = state.toString().split('.').last;
+          
+          if (_connectionStatus == 'connected' || _connectionStatus == 'completed') {
+            _isCallActive = true;
+          } else if (_connectionStatus == 'disconnected' || _connectionStatus == 'failed' || _connectionStatus == 'closed') {
+            _isCallActive = false;
+          }
         });
       }
     };
@@ -138,7 +167,7 @@ class _CallOverlayState extends State<CallOverlay> {
       backgroundColor: Colors.black.withOpacity(0.95),
       body: Stack(
         children: [
-          // 1. Remote Video Layer (Big Screen)
+          // 1. Remote Video Layer
           if (_paymentConfirmed && !_callConnecting)
             Positioned.fill(
               child: _buildRemoteView(),
@@ -155,54 +184,256 @@ class _CallOverlayState extends State<CallOverlay> {
           if (_hasPermissions || _localMediaError != null) 
             _buildLocalThumbnail(),
 
-          // 5. Controls
+          // 5. Prescription Viewer Overlay
+          if (_showPrescription && _roomId != null)
+            Positioned(
+              left: 30, top: 100, bottom: 140,
+              child: _buildPrescriptionView(),
+            ),
+
+          // 6. Controls
           if (_paymentConfirmed && !_callConnecting) ...[
             _buildActionControls(),
-            _buildRoomIdDisplay(),
+            if (!_isCallActive) _buildRoomIdDisplay(),
           ],
 
-          Positioned(
-            top: 40, right: 30,
-            child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white, size: 30),
-              onPressed: () {
-                 _signaling.hangUp(_localRenderer, roomId: _roomId);
-                 Navigator.pop(context);
-              },
+          // 7. Close Button
+          if (!_paymentConfirmed || _callConnecting)
+            Positioned(
+              top: 40, right: 30,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () {
+                   _signaling.hangUp(_localRenderer, roomId: _roomId);
+                   Navigator.pushAndRemoveUntil(
+                     context,
+                     MaterialPageRoute(builder: (context) => const TelmedHomePage()),
+                     (Route<dynamic> route) => false,
+                   );
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
   }
 
   Widget _buildRemoteView() {
-    bool hasRemoteVideo = _remoteRenderer.srcObject != null && 
-                          _remoteRenderer.srcObject!.getVideoTracks().isNotEmpty;
+    bool hasRemoteVideo = _remoteRenderer.srcObject != null && _remoteRenderer.srcObject!.getVideoTracks().isNotEmpty;
+    bool isFullyConnected = _connectionStatus == 'connected' || _connectionStatus == 'completed';
 
     return Stack(
       children: [
         RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
         
-        if (!hasRemoteVideo)
+        if (!_isCallActive)
+          _buildWaitingRoomUI(),
+          
+        if (_isCallActive && !hasRemoteVideo && !isFullyConnected)
           Container(
-            color: Colors.black87,
+            color: const Color(0xFF1E293B),
             child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.videocam_off, color: Colors.redAccent, size: 50),
-                  const SizedBox(height: 20),
-                  Text("REMOTE VIDEO MISSING", style: GoogleFonts.plusJakartaSans(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                  const CircularProgressIndicator(color: Colors.greenAccent),
+                  const SizedBox(height: 25),
+                  Text("Doctor Joined!", style: GoogleFonts.plusJakartaSans(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
-                  Text("Status: $_connectionStatus", style: const TextStyle(color: Colors.white70)),
-                  const SizedBox(height: 5),
-                  const Text("Waiting for doctor's stream...", style: TextStyle(color: Colors.white38)),
+                  Text("Connecting video stream...", style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 16)),
+                ],
+              ),
+            ),
+          ),
+
+        if (_isCallActive && (hasRemoteVideo || isFullyConnected))
+          Positioned(
+            top: 40, left: 30,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2D7D46).withOpacity(0.9),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.greenAccent, width: 1)
+              ),
+              child: Row(
+                children: [
+                  Container(width: 10, height: 10, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
+                  Text("ACTIVE CALL", style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1)),
                 ],
               ),
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildPrescriptionView() {
+    return Container(
+      width: 380,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20)],
+      ),
+      child: StreamBuilder<DocumentSnapshot>(
+        stream: _prescriptionService.getPrescriptionStream(_roomId!),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: Color(0xFF2D7D46)));
+          }
+          
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return _buildEmptyPrescriptionState();
+          }
+
+          var data = snapshot.data!.data() as Map<String, dynamic>;
+          List<dynamic> medications = data['medications'] ?? [];
+          String status = data['status'] ?? 'draft'; 
+          
+          return Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1E293B),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.receipt_long, color: Color(0xFFF9A825), size: 22),
+                    const SizedBox(width: 12),
+                    Text("YOUR PRESCRIPTION", style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(24),
+                  children: [
+                    Text("Patient Age: ${data['patientAge']} yrs", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text("Doctor: ${data['doctorId']}", style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Divider(),
+                    ),
+                    Text("MEDICATIONS", style: GoogleFonts.plusJakartaSans(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                    const SizedBox(height: 10),
+                    ...medications.map((med) => Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        border: Border.all(color: Colors.grey.shade200),
+                        borderRadius: BorderRadius.circular(12)
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(med['medicine'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          const SizedBox(height: 4),
+                          Text("${med['dosage']} • ${med['duration']}", style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
+                        ],
+                      ),
+                    )),
+                    if (data['doctorNotes'] != null && data['doctorNotes'].toString().isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      Text("DOCTOR'S NOTES", style: GoogleFonts.plusJakartaSans(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12)),
+                        child: Text(data['doctorNotes'], style: TextStyle(color: Colors.blue.shade900, fontSize: 14)),
+                      )
+                    ],
+                    
+                    // --- UPDATED ROUTING TO DASHBOARD BUTTON ---
+                    if (status == 'issued') ...[
+                      const SizedBox(height: 30),
+                      ElevatedButton(
+                        onPressed: () {
+                          // 1. Safely attempt to close the WebRTC connection
+                          try {
+                            _signaling.hangUp(_localRenderer, roomId: _roomId);
+                          } catch (e) {
+                            debugPrint("WebRTC Hangup bypassed: $e");
+                          }
+
+                          // 2. Ensure the widget is still mounted before routing
+                          if (!mounted) return;
+
+                          // 3. Force the route to the new dashboard
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => PatientPrescriptionDashboard(roomId: _roomId!),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFF9A825), 
+                          minimumSize: const Size(double.infinity, 60),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          elevation: 0,
+                        ),
+                        child: Text(
+                          "PROCEED TO DASHBOARD",
+                          style: GoogleFonts.plusJakartaSans(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ),
+                    ]
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildEmptyPrescriptionState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.hourglass_empty, color: Colors.grey.shade300, size: 60),
+            const SizedBox(height: 20),
+            Text("No Prescription Yet", style: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey.shade800)),
+            const SizedBox(height: 10),
+            Text("The doctor hasn't finalized your prescription yet. Check back here during or after the consultation.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWaitingRoomUI() {
+    return Container(
+      color: const Color(0xFF1E293B),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Color(0xFFF9A825), strokeWidth: 3),
+            const SizedBox(height: 35),
+            const Icon(Icons.health_and_safety, color: Color(0xFF2D7D46), size: 70), 
+            const SizedBox(height: 25),
+            Text("VIRTUAL WAITING ROOM", style: GoogleFonts.plusJakartaSans(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+            const SizedBox(height: 12),
+            Text("Please wait patiently.", style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 16)),
+            const SizedBox(height: 6),
+            Text("An available doctor will join shortly.", style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 16)),
+          ],
+        ),
+      ),
     );
   }
 
@@ -212,17 +443,8 @@ class _CallOverlayState extends State<CallOverlay> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SelectableText(
-            "Room ID: ${_roomId ?? 'Generating...'}",
-            style: const TextStyle(color: Colors.white54, fontSize: 12),
-          ),
-          Text(
-            "Conn: $_connectionStatus",
-            style: TextStyle(
-              color: _connectionStatus == 'connected' ? Colors.green : Colors.orange, 
-              fontSize: 10
-            ),
-          ),
+          SelectableText("Room ID: ${_roomId ?? 'Generating...'}", style: const TextStyle(color: Colors.white54, fontSize: 12)),
+          Text("Conn: $_connectionStatus", style: const TextStyle(color: Colors.orange, fontSize: 10)),
         ],
       ),
     );
@@ -241,7 +463,6 @@ class _CallOverlayState extends State<CallOverlay> {
             const SizedBox(height: 20),
             Text("KSH 54", style: GoogleFonts.plusJakartaSans(fontSize: 48, fontWeight: FontWeight.w900, color: const Color(0xFF1B4D2C))),
             const SizedBox(height: 30),
-            
             if (_localMediaError != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 20),
@@ -255,7 +476,6 @@ class _CallOverlayState extends State<CallOverlay> {
                   ],
                 ),
               ),
-
             ElevatedButton(
               onPressed: _isPaying ? null : _validateAndProcessPayment,
               style: ElevatedButton.styleFrom(
@@ -282,10 +502,7 @@ class _CallOverlayState extends State<CallOverlay> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(18),
           child: _localMediaError != null
-              ? Container(
-                  color: Colors.red.withOpacity(0.2),
-                  child: const Center(child: Icon(Icons.no_photography, color: Colors.red, size: 30)),
-                )
+              ? Container(color: Colors.red.withOpacity(0.2), child: const Center(child: Icon(Icons.no_photography, color: Colors.red, size: 30)))
               : RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
         ),
       ),
@@ -299,6 +516,15 @@ class _CallOverlayState extends State<CallOverlay> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _circleBtn(
+            icon: Icons.receipt_long, 
+            bgColor: _showPrescription ? const Color(0xFF2D7D46) : Colors.white, 
+            iconColor: _showPrescription ? Colors.white : Colors.black,
+            onTap: () {
+              setState(() => _showPrescription = !_showPrescription);
+            }
+          ),
+          const SizedBox(width: 25),
+          _circleBtn(
             icon: _isMicOn ? Icons.mic : Icons.mic_off, 
             bgColor: _isMicOn ? Colors.white10 : Colors.white, 
             iconColor: _isMicOn ? Colors.white : Colors.black,
@@ -311,8 +537,15 @@ class _CallOverlayState extends State<CallOverlay> {
           _circleBtn(
             icon: Icons.call_end, bgColor: Colors.red, iconColor: Colors.white,
             onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("You have ended the call"), backgroundColor: Colors.red),
+              );
               _signaling.hangUp(_localRenderer, roomId: _roomId);
-              Navigator.pop(context);
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const TelmedHomePage()),
+                (Route<dynamic> route) => false,
+              );
             }
           ),
           const SizedBox(width: 25),

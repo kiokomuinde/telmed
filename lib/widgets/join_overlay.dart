@@ -4,6 +4,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:ui';
 import '../services/signaling.dart';
+import 'digital_prescription_pad.dart';
 
 class JoinOverlay extends StatefulWidget {
   const JoinOverlay({super.key});
@@ -18,7 +19,13 @@ class _JoinOverlayState extends State<JoinOverlay> {
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
 
   bool _isJoined = false;
-  bool _isProcessing = false; // PREVENTS DOUBLE CLICKS
+  // CHANGED: Instead of a boolean, we track the specific room ID being processed
+  String? _processingRoomId; 
+  
+  // Media & UI State
+  bool _isMicOn = true;
+  bool _isCameraOn = true;
+  bool _showPrescriptionPad = false; // Controls prescription pad visibility
   
   String? _localMediaError;
   String _connectionStatus = "Ready"; 
@@ -97,10 +104,12 @@ class _JoinOverlayState extends State<JoinOverlay> {
               Text("Status: $_connectionStatus", style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12)),
             ],
           ),
-          IconButton(
-            icon: const Icon(Icons.close, color: Colors.white, size: 30),
-            onPressed: () => Navigator.pop(context),
-          )
+          // ONLY SHOW THE CLOSE BUTTON IF THE DOCTOR HAS NOT JOINED A CALL
+          if (!_isJoined)
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 30),
+              onPressed: () => Navigator.pop(context),
+            )
         ],
       ),
     );
@@ -138,8 +147,10 @@ class _JoinOverlayState extends State<JoinOverlay> {
                         leading: const Icon(Icons.person, color: Colors.white),
                         title: Text("Patient #${index + 1}", style: const TextStyle(color: Colors.white)),
                         trailing: ElevatedButton(
-                          onPressed: _isProcessing ? null : () => _joinRoom(room.id),
-                          child: _isProcessing && _isJoined == false 
+                          // Disable button if ANY room is currently processing
+                          onPressed: _processingRoomId != null ? null : () => _joinRoom(room.id),
+                          // Only show the loading spinner if THIS specific room is the one being processed
+                          child: _processingRoomId == room.id && !_isJoined 
                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
                              : const Text("ACCEPT"),
                         ),
@@ -156,10 +167,10 @@ class _JoinOverlayState extends State<JoinOverlay> {
   }
 
   Future<void> _joinRoom(String roomId) async {
-    if (_isProcessing) return; // PREVENT DOUBLE CLICK
+    if (_processingRoomId != null) return; // PREVENT DOUBLE CLICK
     
     setState(() {
-      _isProcessing = true;
+      _processingRoomId = roomId; // Track the specific room being processed
       _localMediaError = null;
     });
 
@@ -175,7 +186,7 @@ class _JoinOverlayState extends State<JoinOverlay> {
         _isJoined = true;
       });
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) setState(() => _processingRoomId = null); // Reset after joining
     }
   }
 
@@ -205,6 +216,15 @@ class _JoinOverlayState extends State<JoinOverlay> {
             ),
           ),
           
+        // Digital Prescription Pad - Toggled by _showPrescriptionPad
+        if (_showPrescriptionPad)
+          Positioned(
+            left: 30, 
+            top: 30,
+            bottom: 120, // Leaves room for the bottom call control buttons
+            child: DigitalPrescriptionPad(roomId: _signaling.roomId ?? ''), 
+          ),
+
         Positioned(
           right: 30, top: 30,
           child: Container(
@@ -219,20 +239,63 @@ class _JoinOverlayState extends State<JoinOverlay> {
           ),
         ),
         
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 50),
-            child: IconButton(
-               icon: const Icon(Icons.call_end, color: Colors.red, size: 40), 
-               onPressed: () {
-                 _signaling.hangUp(_localRenderer);
-                 Navigator.pop(context);
-               }
-            ),
+        Positioned(
+          bottom: 40, left: 0, right: 0,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Prescription Pad Toggle Button
+              _circleBtn(
+                icon: Icons.edit_document, 
+                bgColor: _showPrescriptionPad ? const Color(0xFF2D7D46) : Colors.white, 
+                iconColor: _showPrescriptionPad ? Colors.white : Colors.black,
+                onTap: () {
+                  setState(() => _showPrescriptionPad = !_showPrescriptionPad);
+                }
+              ),
+              const SizedBox(width: 25),
+              _circleBtn(
+                icon: _isMicOn ? Icons.mic : Icons.mic_off, 
+                bgColor: _isMicOn ? Colors.white10 : Colors.white, 
+                iconColor: _isMicOn ? Colors.white : Colors.black,
+                onTap: () {
+                  _signaling.toggleMic();
+                  setState(() => _isMicOn = !_isMicOn);
+                }
+              ),
+              const SizedBox(width: 25),
+              _circleBtn(
+                icon: Icons.call_end, bgColor: Colors.red, iconColor: Colors.white,
+                onTap: () {
+                  _signaling.hangUp(_localRenderer);
+                  Navigator.pop(context);
+                }
+              ),
+              const SizedBox(width: 25),
+              _circleBtn(
+                icon: _isCameraOn ? Icons.videocam : Icons.videocam_off, 
+                bgColor: _isCameraOn ? Colors.white10 : Colors.white, 
+                iconColor: _isCameraOn ? Colors.white : Colors.black,
+                onTap: () {
+                  _signaling.toggleCamera();
+                  setState(() => _isCameraOn = !_isCameraOn);
+                }
+              ),
+            ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _circleBtn({required IconData icon, required Color bgColor, required Color iconColor, VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
+        child: Icon(icon, color: iconColor, size: 30),
+      ),
     );
   }
 }

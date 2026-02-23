@@ -7,6 +7,7 @@ import 'dart:async';
 // we just import them by name.
 import 'call_overlay.dart';
 import 'join_overlay.dart';
+import 'package:telmed/pages/rx_verification_scanner.dart'; // Imported the scanner page
 
 /// --- FLEXIBLE BRAND LOGO ---
 class BrandLogo extends StatelessWidget {
@@ -93,18 +94,28 @@ class TelmedNavBar extends StatelessWidget {
                   // --- TESTING BUTTON FOR DOCTORS ---
                   if (!isMobile) const DoctorTestBtn(),
                   
-                  const SizedBox(width: 15),
-                  ElevatedButton(
-                    onPressed: () {},
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2D7D46),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15)
+                  if (!isMobile) const SizedBox(width: 15),
+
+                  // --- VERIFY RX SCANNER BUTTON ---
+                  if (!isMobile) const VerifyRxBtn(),
+
+                  // --- DESKTOP GET STARTED BUTTON ---
+                  if (!isMobile) ...[
+                    const SizedBox(width: 15),
+                    ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2D7D46),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15)
+                      ),
+                      child: const Text("Get Started", style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
-                    child: const Text("Get Started", style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
+                  ],
+                  
+                  // --- MOBILE MENU ICON ONLY ---
                   if (isMobile)
                     IconButton(
                       icon: Icon(Icons.menu, color: isScrolled ? Colors.black : Colors.white),
@@ -153,6 +164,31 @@ class DoctorTestBtn extends StatelessWidget {
       style: OutlinedButton.styleFrom(
         foregroundColor: const Color(0xFF2D7D46),
         side: const BorderSide(color: Color(0xFF2D7D46)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+      ),
+    );
+  }
+}
+
+/// --- VERIFY RX BUTTON ---
+class VerifyRxBtn extends StatelessWidget {
+  const VerifyRxBtn({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const RxVerificationScanner()),
+        );
+      },
+      icon: const Icon(Icons.qr_code_scanner, size: 18),
+      label: const Text("Verify RX"),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFFF9A825), // Uses the Gold CTA color to stand out slightly
+        side: const BorderSide(color: Color(0xFFF9A825)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
       ),
@@ -239,7 +275,7 @@ class TelmedFooter extends StatelessWidget {
           const Divider(color: Colors.white10),
           const SizedBox(height: 30),
           Text(
-            "© 2024 Telmed Inc. All rights reserved.",
+            "© ${DateTime.now().year} Telmed Inc. All rights reserved.",
             style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 14),
           ),
         ],
@@ -263,17 +299,44 @@ class TelmedDrawer extends StatelessWidget {
             decoration: BoxDecoration(color: Color(0xFF1B4D2C)),
             child: Center(child: BrandLogo(isDark: false, height: 50, showName: true)),
           ),
-          _drawerItem(Icons.medical_services_outlined, "Services", () {}),
-          _drawerItem(Icons.home_work_outlined, "Homecare", () {}),
-          _drawerItem(Icons.payments_outlined, "Pricing", () {}),
+          _drawerItem(context, Icons.medical_services_outlined, "Services", () {}),
+          _drawerItem(context, Icons.home_work_outlined, "Homecare", () {}),
+          _drawerItem(context, Icons.payments_outlined, "Pricing", () {}),
           const Divider(),
-          _drawerItem(Icons.login, "Doctor Login", () {}),
+          
+          // --- REPLACED: Get Started instead of Doctor Login ---
+          _drawerItem(context, Icons.person_add_outlined, "Get Started", () {
+            Navigator.pop(context); // Closes drawer nicely
+            // TODO: Route to onboarding or login flow
+          }),
+          
+          // --- SMOOTH MOBILE DOCTOR TEST BUTTON ---
+          _drawerItem(context, Icons.video_camera_front_outlined, "Doctor Test (Join)", () {
+            // Smoothly close the drawer first before showing the video overlay
+            Navigator.pop(context); 
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => const JoinOverlay(),
+            );
+          }),
+
+          // --- MOBILE DRAWER ITEM FOR RX SCANNER ---
+          _drawerItem(context, Icons.qr_code_scanner, "Verify RX (Scanner)", () {
+            // Smoothly close the drawer first
+            Navigator.pop(context);
+            // Then route them to the scanning page
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const RxVerificationScanner()),
+            );
+          }),
         ],
       ),
     );
   }
 
-  Widget _drawerItem(IconData icon, String title, VoidCallback onTap) {
+  Widget _drawerItem(BuildContext context, IconData icon, String title, VoidCallback onTap) {
     return ListTile(
       leading: Icon(icon, color: const Color(0xFF2D7D46)),
       title: Text(title, style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
