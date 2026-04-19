@@ -103,7 +103,10 @@ class TelmedNavBar extends StatelessWidget {
                   if (!isMobile) ...[
                     const SizedBox(width: 15),
                     ElevatedButton(
-                      onPressed: () {},
+                      onPressed: () {
+                        // Routing to the auth page
+                        Navigator.pushNamed(context, '/auth');
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2D7D46),
                         foregroundColor: Colors.white,
@@ -202,6 +205,7 @@ class ActionBtn extends StatelessWidget {
   final IconData? iconData;
   final Color color;
   final bool primary;
+  final VoidCallback? onTap; // NEW: Added optional custom tap handler
 
   const ActionBtn({
     super.key,
@@ -210,6 +214,7 @@ class ActionBtn extends StatelessWidget {
     this.iconData,
     required this.color,
     required this.primary,
+    this.onTap, // NEW: Include in constructor
   });
 
   @override
@@ -217,7 +222,8 @@ class ActionBtn extends StatelessWidget {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: () {
+        // NEW: If onTap is provided, use it. Otherwise, default to CallOverlay
+        onTap: onTap ?? () {
           showDialog(
             context: context,
             barrierDismissible: false,
@@ -307,7 +313,7 @@ class TelmedDrawer extends StatelessWidget {
           // --- REPLACED: Get Started instead of Doctor Login ---
           _drawerItem(context, Icons.person_add_outlined, "Get Started", () {
             Navigator.pop(context); // Closes drawer nicely
-            // TODO: Route to onboarding or login flow
+            Navigator.pushNamed(context, '/auth'); // Route to auth page
           }),
           
           // --- SMOOTH MOBILE DOCTOR TEST BUTTON ---

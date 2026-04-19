@@ -219,25 +219,31 @@ class _JoinOverlayState extends State<JoinOverlay> {
         // Digital Prescription Pad - Toggled by _showPrescriptionPad
         if (_showPrescriptionPad)
           Positioned(
-            left: 30, 
+            left: 20, 
+            right: 20, // <-- ADDED: Prevents overflow on the right side
             top: 30,
             bottom: 120, // Leaves room for the bottom call control buttons
-            child: DigitalPrescriptionPad(roomId: _signaling.roomId ?? ''), 
-          ),
-
-        Positioned(
-          right: 30, top: 30,
-          child: Container(
-            width: 180, height: 260,
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white24, width: 2)),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: _localMediaError != null
-                 ? Container(color: Colors.red.withOpacity(0.3), child: const Center(child: Icon(Icons.warning, color: Colors.red)))
-                 : RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+            child: Align( // <-- ADDED: Ensures the BoxConstraints work perfectly
+              alignment: Alignment.topLeft,
+              child: DigitalPrescriptionPad(roomId: _signaling.roomId ?? ''), 
             ),
           ),
-        ),
+
+        // Local Preview (Floating) - NOW HIDES WHEN CAMERA IS OFF
+        if (_isCameraOn)
+          Positioned(
+            right: 30, top: 30,
+            child: Container(
+              width: 180, height: 260,
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white24, width: 2)),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: _localMediaError != null
+                   ? Container(color: Colors.red.withOpacity(0.3), child: const Center(child: Icon(Icons.warning, color: Colors.red)))
+                   : RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+              ),
+            ),
+          ),
         
         Positioned(
           bottom: 40, left: 0, right: 0,

@@ -6,7 +6,7 @@ import 'dart:ui';
 import '../services/signaling.dart';
 import '../services/prescription_service.dart';
 import 'package:telmed/pages/home_page.dart';
-import 'package:telmed/pages/patient_prescription_dashboard.dart'; // NEW: Imported your dashboard
+import 'package:telmed/pages/patient_prescription_dashboard.dart'; 
 
 class CallOverlay extends StatefulWidget {
   const CallOverlay({super.key});
@@ -180,15 +180,21 @@ class _CallOverlayState extends State<CallOverlay> {
           if (_callConnecting)
             const Center(child: CircularProgressIndicator(color: Colors.greenAccent)),
 
-          // 4. Local Preview (Floating)
-          if (_hasPermissions || _localMediaError != null) 
+          // 4. Local Preview (Floating) - NOW HIDES WHEN CAMERA IS OFF
+          if (_isCameraOn && (_hasPermissions || _localMediaError != null)) 
             _buildLocalThumbnail(),
 
           // 5. Prescription Viewer Overlay
           if (_showPrescription && _roomId != null)
             Positioned(
-              left: 30, top: 100, bottom: 140,
-              child: _buildPrescriptionView(),
+              left: 20, 
+              right: 20, 
+              top: 100, 
+              bottom: 140,
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: _buildPrescriptionView(),
+              ),
             ),
 
           // 6. Controls
@@ -271,7 +277,8 @@ class _CallOverlayState extends State<CallOverlay> {
 
   Widget _buildPrescriptionView() {
     return Container(
-      width: 380,
+      width: double.infinity, 
+      constraints: const BoxConstraints(maxWidth: 380), 
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
@@ -348,22 +355,18 @@ class _CallOverlayState extends State<CallOverlay> {
                       )
                     ],
                     
-                    // --- UPDATED ROUTING TO DASHBOARD BUTTON ---
                     if (status == 'issued') ...[
                       const SizedBox(height: 30),
                       ElevatedButton(
                         onPressed: () {
-                          // 1. Safely attempt to close the WebRTC connection
                           try {
                             _signaling.hangUp(_localRenderer, roomId: _roomId);
                           } catch (e) {
                             debugPrint("WebRTC Hangup bypassed: $e");
                           }
 
-                          // 2. Ensure the widget is still mounted before routing
                           if (!mounted) return;
 
-                          // 3. Force the route to the new dashboard
                           Navigator.pushReplacement(
                             context,
                             MaterialPageRoute(

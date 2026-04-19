@@ -154,7 +154,8 @@ class _DigitalPrescriptionPadState extends State<DigitalPrescriptionPad> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 420,
+      width: double.infinity, // <-- CHANGED: Allows it to shrink on small screens
+      constraints: const BoxConstraints(maxWidth: 420), // <-- CHANGED: Max width for large screens
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(24),
